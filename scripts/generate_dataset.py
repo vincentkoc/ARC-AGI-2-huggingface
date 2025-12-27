@@ -65,10 +65,8 @@ def parse_args() -> argparse.Namespace:
 class TaskRecord:
     task_id: str
     split: str
-    test_index: int
     train_pairs: Sequence[Dict[str, List[List[int]]]]
-    test_input: List[List[int]]
-    test_output: List[List[int]]
+    test_pairs: Sequence[Dict[str, List[List[int]]]]
 
 
 def grid_to_text(grid: Sequence[Sequence[int]]) -> str:
@@ -168,28 +166,37 @@ def load_records(raw_root: Path, output_dir: Path, max_image_size: int, max_task
                 payload = json.load(fp)
             task_id = task_path.stem
             train_pairs = payload.get("train", [])
+            test_pairs = payload.get("test", [])
             task_image_dir = output_dir / "images" / split_name / task_id
-            train_demo_images: Dict[str, List[str]] = {
-                "input_color": [],
-                "input_annotated": [],
-                "output_color": [],
-                "output_annotated": [],
-            }
+            train_input_color_images: List[str] = []
+            train_input_annotated_images: List[str] = []
+            train_output_color_images: List[str] = []
+            train_output_annotated_images: List[str] = []
+            test_input_color_images: List[str] = []
+            test_input_annotated_images: List[str] = []
+            test_output_color_images: List[str] = []
+            test_output_annotated_images: List[str] = []
+            test_prompts: List[str] = []
+            test_targets: List[str] = []
+            test_input_texts: List[str] = []
+            test_output_texts: List[str] = []
+            test_conversations: List[Dict[str, List[str]]] = []
             for demo_index, demo_pair in enumerate(train_pairs):
-                demo_dir = task_image_dir / "demo"
+                demo_dir = task_image_dir / "train"
                 input_paths = render_grid_versions(demo_pair["input"], demo_dir, f"demo{demo_index}_input", max_image_size)
                 output_paths = render_grid_versions(demo_pair["output"], demo_dir, f"demo{demo_index}_output", max_image_size)
-                train_demo_images["input_color"].append(str(input_paths["color"]))
-                train_demo_images["input_annotated"].append(str(input_paths["annotated"]))
-                train_demo_images["output_color"].append(str(output_paths["color"]))
-                train_demo_images["output_annotated"].append(str(output_paths["annotated"]))
-            for test_index, test_pair in enumerate(payload.get("test", [])):
-                record_id = f"{task_id}__test_{test_index}"
-                test_input = test_pair["input"]
-                test_output = test_pair["output"]
+                train_input_color_images.append(str(input_paths["color"]))
+                train_input_annotated_images.append(str(input_paths["annotated"]))
+                train_output_color_images.append(str(output_paths["color"]))
+                train_output_annotated_images.append(str(output_paths["annotated"]))
+            for test_index, test_pair in enumerate(test_pairs):
                 test_dir = task_image_dir / "test"
-                input_paths = render_grid_versions(test_input, test_dir, f"test{test_index}_input", max_image_size)
-                output_paths = render_grid_versions(test_output, test_dir, f"test{test_index}_output", max_image_size)
+                input_paths = render_grid_versions(test_pair["input"], test_dir, f"test{test_index}_input", max_image_size)
+                output_paths = render_grid_versions(test_pair["output"], test_dir, f"test{test_index}_output", max_image_size)
+                test_input_color_images.append(str(input_paths["color"]))
+                test_input_annotated_images.append(str(input_paths["annotated"]))
+                test_output_color_images.append(str(output_paths["color"]))
+                test_output_annotated_images.append(str(output_paths["annotated"]))
                 fewshot_prompt_lines = [
                     f"Task ID: {task_id}",
                     "You are given demonstration input/output grid pairs.",
@@ -198,86 +205,80 @@ def load_records(raw_root: Path, output_dir: Path, max_image_size: int, max_task
                     fewshot_prompt_lines.append(f"Example {idx} Input:\n{grid_to_text(demo_pair['input'])}")
                     fewshot_prompt_lines.append(f"Example {idx} Output:\n{grid_to_text(demo_pair['output'])}")
                 fewshot_prompt_lines.append("Now solve the test input:")
-                fewshot_prompt_lines.append(grid_to_text(test_input))
+                fewshot_prompt_lines.append(grid_to_text(test_pair["input"]))
                 fewshot_prompt_lines.append("Respond with a JSON array-of-arrays.")
                 fewshot_prompt = "\n\n".join(fewshot_prompt_lines)
-                conversation_roles = ["system", "user", "assistant"]
-                conversation_contents = [
-                    SYSTEM_PROMPT,
-                    fewshot_prompt,
-                    grid_to_json_text(test_output),
-                ]
-                record = {
-                    "id": record_id,
-                    "task_id": task_id,
-                    "split": split_name,
-                    "test_index": test_index,
-                    "train_pair_count": len(train_pairs),
-                    "train_pairs": [{"input": pair["input"], "output": pair["output"]} for pair in train_pairs],
-                    "train_demo_images": {k: list(v) for k, v in train_demo_images.items()},
-                    "test_input": test_input,
-                    "test_output": test_output,
-                    "test_input_images": {
-                        "color": str(input_paths["color"]),
-                        "annotated": str(input_paths["annotated"]),
-                    },
-                    "test_output_images": {
-                        "color": str(output_paths["color"]),
-                        "annotated": str(output_paths["annotated"]),
-                    },
-                    "input_text": grid_to_text(test_input),
-                    "output_text": grid_to_text(test_output),
-                    "fewshot_prompt": fewshot_prompt,
-                    "fewshot_target": grid_to_json_text(test_output),
-                    "conversation": {"role": conversation_roles, "content": conversation_contents},
-                    "input_height": len(test_input),
-                    "input_width": len(test_input[0]) if test_input else 0,
-                    "output_height": len(test_output),
-                    "output_width": len(test_output[0]) if test_output else 0,
-                    "input_hash": stable_hash(test_input),
-                    "output_hash": stable_hash(test_output),
-                }
-                results[split_name].append(record)
+                target = grid_to_json_text(test_pair["output"])
+                test_prompts.append(fewshot_prompt)
+                test_targets.append(target)
+                test_input_texts.append(grid_to_text(test_pair["input"]))
+                test_output_texts.append(grid_to_text(test_pair["output"]))
+                test_conversations.append(
+                    {
+                        "role": ["system", "user", "assistant"],
+                        "content": [SYSTEM_PROMPT, fewshot_prompt, target],
+                    }
+                )
+            record = {
+                "id": task_id,
+                "task_id": task_id,
+                "split": split_name,
+                "train_pair_count": len(train_pairs),
+                "test_pair_count": len(test_pairs),
+                "train": [{"input": pair["input"], "output": pair["output"]} for pair in train_pairs],
+                "test": [{"input": pair["input"], "output": pair["output"]} for pair in test_pairs],
+                "test_outputs": [pair["output"] for pair in test_pairs],
+                "train_input_image_color": train_input_color_images,
+                "train_input_image_annotated": train_input_annotated_images,
+                "train_output_image_color": train_output_color_images,
+                "train_output_image_annotated": train_output_annotated_images,
+                "test_input_image_color": test_input_color_images,
+                "test_input_image_annotated": test_input_annotated_images,
+                "test_output_image_color": test_output_color_images,
+                "test_output_image_annotated": test_output_annotated_images,
+                "test_input_texts": test_input_texts,
+                "test_output_texts": test_output_texts,
+                "test_prompts": test_prompts,
+                "test_targets": test_targets,
+                "test_conversations": test_conversations,
+            }
+            results[split_name].append(record)
     return results
 
 
 def build_features() -> Features:
     grid_feature = HFSequence(HFSequence(Value("int32")))
-    conversation_feature = {
-        "role": HFSequence(Value("string")),
-        "content": HFSequence(Value("string")),
-    }
-    demo_images_feature = {
-        "input_color": HFSequence(Image()),
-        "input_annotated": HFSequence(Image()),
-        "output_color": HFSequence(Image()),
-        "output_annotated": HFSequence(Image()),
-    }
-    test_image_feature = {"color": Image(), "annotated": Image()}
+    conversation_turn_feature = Features(
+        {
+            "role": HFSequence(Value("string")),
+            "content": HFSequence(Value("string")),
+        }
+    )
+    conversation_feature = HFSequence(conversation_turn_feature)
+    image_list_feature = HFSequence(Image())
     return Features(
         {
             "id": Value("string"),
             "task_id": Value("string"),
             "split": Value("string"),
-            "test_index": Value("int32"),
             "train_pair_count": Value("int32"),
-            "train_pairs": HFSequence({"input": grid_feature, "output": grid_feature}),
-            "train_demo_images": demo_images_feature,
-            "test_input": grid_feature,
-            "test_output": grid_feature,
-            "test_input_images": test_image_feature,
-            "test_output_images": test_image_feature,
-            "input_text": Value("string"),
-            "output_text": Value("string"),
-            "fewshot_prompt": Value("string"),
-            "fewshot_target": Value("string"),
-            "conversation": conversation_feature,
-            "input_height": Value("int32"),
-            "input_width": Value("int32"),
-            "output_height": Value("int32"),
-            "output_width": Value("int32"),
-            "input_hash": Value("string"),
-            "output_hash": Value("string"),
+            "test_pair_count": Value("int32"),
+            "train": HFSequence({"input": grid_feature, "output": grid_feature}),
+            "test": HFSequence({"input": grid_feature, "output": grid_feature}),
+            "test_outputs": HFSequence(grid_feature),
+            "train_input_image_color": image_list_feature,
+            "train_input_image_annotated": image_list_feature,
+            "train_output_image_color": image_list_feature,
+            "train_output_image_annotated": image_list_feature,
+            "test_input_image_color": image_list_feature,
+            "test_input_image_annotated": image_list_feature,
+            "test_output_image_color": image_list_feature,
+            "test_output_image_annotated": image_list_feature,
+            "test_input_texts": HFSequence(Value("string")),
+            "test_output_texts": HFSequence(Value("string")),
+            "test_prompts": HFSequence(Value("string")),
+            "test_targets": HFSequence(Value("string")),
+            "test_conversations": conversation_feature,
         }
     )
 
@@ -305,14 +306,7 @@ def write_preview_jsonl(records: Dict[str, List[Dict]], output_dir: Path) -> Non
 def build_dataset_info(features: Features, split_sizes: Dict[str, int], datasets_by_split: Dict[str, Dataset], output_dir: Path) -> None:
     split_dict = SplitDict()
     for split_name, dataset in datasets_by_split.items():
-        split_dict.add(
-            SplitInfo(
-                name=split_name,
-                num_examples=len(dataset),
-                num_bytes=split_sizes[split_name],
-                dataset_name="arc_agi_2",
-            )
-        )
+        split_dict.add(SplitInfo(name=split_name, num_examples=len(dataset), num_bytes=split_sizes[split_name], dataset_name="arc_agi_2"))
     image_bytes = 0
     images_dir = output_dir / "images"
     if images_dir.exists():
@@ -328,7 +322,7 @@ def build_dataset_info(features: Features, split_sizes: Dict[str, int], datasets
         builder_name="arc_agi_2",
         config_name="default",
         splits=split_dict,
-        supervised_keys=("test_input", "test_output"),
+        supervised_keys=None,
     )
     info.dataset_size = sum(split_sizes.values())
     info.size_in_bytes = info.dataset_size + image_bytes

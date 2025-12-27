@@ -81,6 +81,7 @@ jobs:
           else
             git commit -m "Update dataset from GitHub release ${{ github.event.release.tag_name || github.sha }}"
             git remote set-url origin "https://oauth:${HF_TOKEN}@huggingface.co/datasets/${DATASET_REPO}"
+            git pull --rebase origin main || true
             git push
             echo "Successfully pushed changes to $DATASET_REPO"
           fi

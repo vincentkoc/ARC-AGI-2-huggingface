@@ -1,6 +1,14 @@
 # Abstraction and Reasoning Corpus for Artificial General Intelligence v2 (ARC-AGI-2)
 
-This repository contains the ARC-AGI-2 task data (ARC-AGI-1 can be found [here](https://github.com/fchollet/arc-agi)).
+This repository contains a Hugging Face–ready version of the ARC-AGI-2 task data (ARC-AGI-1 can be found [here](https://github.com/fchollet/arc-agi)). In addition to mirroring the canonicalized JSON files, it ships with additional pre-processing that:
+
+- keeps the original train/evaluation splits
+- emits Parquet shards so the dataset supports `datasets` streaming
+- renders every grid into PNG form for multimodal research
+- derives few-shot prompts, chat conversations, and text fields (`task_id`, `input`, `output`, etc.)
+- computes auxiliary metadata such as grid sizes and SHA-256 hashes
+
+Use this repo when you want to reproduce or customize the Hugging Face dataset card (`vincentkoc/arc_agi_2_fewshot`) or build new derived assets.
 
 *"ARC can be seen as a general artificial intelligence benchmark, as a program synthesis benchmark, or as a psychometric intelligence test. It is targeted at both humans and artificially intelligent systems that aim at emulating a human-like form of general fluid intelligence."*
 
@@ -45,6 +53,20 @@ A "grid" is a rectangular matrix (list of lists) of integers between 0 and 9 (in
 
 When looking at a task, a test-taker has access to inputs & outputs of the demonstration pairs, plus the input(s) of the test pair(s). The goal is to construct the output grid(s) corresponding to the test input grid(s), using 3 trials for each test input. "Constructing the output grid" involves picking the height and width of the output grid, then filling each cell in the grid with a symbol (integer between 0 and 9, which are visualized as colors). Only *exact* solutions (all cells match the expected answer) can be said to be correct.
 
+## Hugging Face dataset schema
+
+The `scripts/generate_dataset.py` utility repackages the raw JSON files into a single Hugging Face dataset that matches the ARC Prize loader expectations:
+
+- **Splits:** `train` (≈1000 tasks) and `evaluation` (≈120 tasks). Each row equals one task JSON.
+- **Required fields per row:**
+  - `task_id`: hex stem of the source JSON filename.
+  - `train`: list of `{ "input": [[int]], "output": [[int]] }`.
+  - `test`: list of `{ "input": [[int]], "output": [[int]] }` (public tasks include solutions).
+  - `test_outputs`: duplicate of `test[*].output` for convenience.
+- **Extra fields:** grouped `Image` columns for every rendered grid (`train_input_image_color`, `train_input_image_annotated`, `train_output_image_color`, etc.), plus `test_input_texts`, `test_output_texts`, `test_prompts`, `test_targets`, and `test_conversations` (chat-style traces). All grids stay as ragged lists-of-lists with integers 0–9; no padding or shuffling is applied.
+
+This shape allows downstream consumers to simply call `load_dataset("vincentkoc/arc_agi_2", split="train")` and index per-task records while still having access to multimodal renderings and LLM-ready prompts on each row.
+
 
 ## Usage of the testing interface
 
@@ -79,3 +101,36 @@ When your output grid is ready, click the green "Submit!" button to check your a
 After you've obtained the correct answer for the current test input grid, you can switch to the next test input grid for the task using the "Next test input" button (if there is any available; most tasks only have one test input).
 
 When you're done with a task, use the "load task" button to open a new task.
+
+## Publishing to Hugging Face
+
+Use the utilities in `scripts/generate_dataset.py` to transform the raw ARC-AGI-2 JSON tasks into Parquet shards, PNG renderings, and LLM-ready conversation data. The script writes everything into the folder given by `--output-dir`, including:
+
+- `images/`: per-task folders with both plain-color and digit-annotated PNGs for every demo/test grid
+- `preview/*.jsonl`: human-readable rows for quick inspection
+- `data/*.parquet`: Hugging Face–friendly shards for upload
+
+Each demo/test grid gets two PNGs: a plain-color rendering plus an annotated rendering with the integer token centered in every cell. Files are grouped by split and task under `images/<split>/<task_id>/` for easy navigation.
+
+The script never pushes to Hugging Face unless you explicitly supply `--repo-id`.
+
+Run it locally for the full dataset:
+
+```
+pip install -r requirements.txt
+python scripts/generate_dataset.py --raw-root data --output-dir artifacts/hf-dataset --overwrite
+```
+
+For a lightweight preview (e.g. first two tasks per split) that you can inspect before publishing:
+
+```
+python scripts/generate_dataset.py \
+  --raw-root data \
+  --output-dir artifacts/hf-preview \
+  --max-tasks-per-split 2 \
+  --overwrite
+```
+
+Open `artifacts/hf-preview/preview/train.jsonl` (and `evaluation.jsonl`) or the PNGs under `artifacts/hf-preview/images/...` to review the generated content.
+
+See `README_hf.md` plus `.github/workflows/publish_hf.yml` for the automated release workflow that mirrors the generated artifacts to the Hugging Face Hub.

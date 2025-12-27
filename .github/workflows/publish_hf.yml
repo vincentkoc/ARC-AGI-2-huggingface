@@ -75,7 +75,7 @@ jobs:
           temp_dataset_repo="hf-dataset-repo"
           rm -rf "$temp_dataset_repo"
           git clone "https://huggingface.co/datasets/$DATASET_REPO" "$temp_dataset_repo"
-          rsync -av --delete hf-output/ "$temp_dataset_repo/"
+          rsync -av --delete --exclude 'preview/' hf-output/ "$temp_dataset_repo/"
           cp README_hf.md "$temp_dataset_repo/README.md"
           cp LICENSE "$temp_dataset_repo/LICENSE"
           cd "$temp_dataset_repo"

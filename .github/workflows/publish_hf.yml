@@ -20,7 +20,7 @@ jobs:
   publish-to-hf-hub:
     runs-on: ubuntu-latest
     env:
-      DEFAULT_DATASET_REPO: vincentkoc/arc_agi_2
+      DEFAULT_DATASET_REPO: vincentkoc/arc-agi-2
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
       - name: Checkout repository

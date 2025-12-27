@@ -1,0 +1,93 @@
+name: Publish Datasets to Hugging Face Hub
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      dataset_repo:
+        description: "Override Hugging Face dataset repo (user/name)"
+        required: false
+        type: string
+      push_to_hub:
+        description: "Set to true to push via datasets.push_to_hub instead of git"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  publish-to-hf-hub:
+    runs-on: ubuntu-latest
+    env:
+      DEFAULT_DATASET_REPO: vincentkoc/arc_agi_2
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Determine dataset repo
+        id: dataset_info
+        run: |
+          repo_id="${{ inputs.dataset_repo }}"
+          if [ -z "$repo_id" ]; then
+            repo_id="$DEFAULT_DATASET_REPO"
+          fi
+          echo "repo_id=$repo_id" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Hugging Face artifacts
+        env:
+          DATASET_REPO: ${{ steps.dataset_info.outputs.repo_id }}
+        run: |
+          python scripts/generate_dataset.py \
+            --raw-root data \
+            --output-dir hf-output \
+            --overwrite \
+            $( [ "${{ inputs.push_to_hub }}" = "true" ] && printf -- "--repo-id %s --hf-token %s" "$DATASET_REPO" "$HF_TOKEN" )
+
+      - name: Push via Git (default path)
+        if: ${{ inputs.push_to_hub != 'true' }}
+        env:
+          DATASET_REPO: ${{ steps.dataset_info.outputs.repo_id }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN secret is required to push via git" >&2
+            exit 1
+          fi
+          temp_dataset_repo="hf-dataset-repo"
+          rm -rf "$temp_dataset_repo"
+          git clone "https://huggingface.co/datasets/$DATASET_REPO" "$temp_dataset_repo"
+          rsync -av --delete hf-output/ "$temp_dataset_repo/"
+          cp README_hf.md "$temp_dataset_repo/README.md"
+          cp LICENSE "$temp_dataset_repo/LICENSE"
+          cd "$temp_dataset_repo"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to push to Hugging Face Hub dataset $DATASET_REPO"
+          else
+            git commit -m "Update dataset from GitHub release ${{ github.event.release.tag_name || github.sha }}"
+            git remote set-url origin "https://oauth:${HF_TOKEN}@huggingface.co/datasets/${DATASET_REPO}"
+            git push
+            echo "Successfully pushed changes to $DATASET_REPO"
+          fi
+
+      - name: Upload generated artifacts (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hf-output
+          path: hf-output

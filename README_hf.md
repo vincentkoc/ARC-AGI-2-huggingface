@@ -47,9 +47,9 @@ Images are rendered at up to 200×200 pixels with the canonical ARC palette, ens
 ```python
 from datasets import load_dataset
 
-ds = load_dataset("vincentkoc/arc_agi_2_fewshot", split="train", streaming=True)
+ds = load_dataset("vincentkoc/arc-agi-2", split="train", streaming=True)
 for row in ds.take(1):
-    print(row["task_id"], row["fewshot_prompt"])
+    print(row["task_id"], row["test_prompts"][0])
 ```
 
 Indices align across the lists: `train[i]` corresponds to `train_input_image_color[i]`, `train_output_image_color[i]`, etc. To fine-tune an LLM with supervised signals, zip `test_prompts` with `test_targets` or use `test_conversations`. For multimodal agents, choose whichever variant you need from the image columns—every demo/test grid is available as both a pure color PNG and an annotated PNG with the numeric token rendered on top.

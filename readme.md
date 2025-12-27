@@ -8,7 +8,7 @@ This repository contains a Hugging Face–ready version of the ARC-AGI-2 task da
 - derives few-shot prompts, chat conversations, and text fields (`task_id`, `input`, `output`, etc.)
 - computes auxiliary metadata such as grid sizes and SHA-256 hashes
 
-Use this repo when you want to reproduce or customize the Hugging Face dataset card (`vincentkoc/arc_agi_2_fewshot`) or build new derived assets.
+Use this repo when you want to reproduce or customize the Hugging Face dataset card (`vincentkoc/arc-agi-2`) or build new derived assets. The canonical GitHub location is [https://github.com/vincentkoc/ARC-AGI-2-huggingface](https://github.com/vincentkoc/ARC-AGI-2-huggingface).
 
 *"ARC can be seen as a general artificial intelligence benchmark, as a program synthesis benchmark, or as a psychometric intelligence test. It is targeted at both humans and artificially intelligent systems that aim at emulating a human-like form of general fluid intelligence."*
 

@@ -10,9 +10,9 @@ on:
         required: false
         type: string
       push_to_hub:
-        description: "Set to true to push via datasets.push_to_hub instead of git"
+        description: "Set to true to push via datasets.push_to_hub (recommended) or false to use git rsync."
         required: false
-        default: "false"
+        default: "true"
         type: choice
         options: ["false", "true"]
       force_push:
@@ -62,6 +62,38 @@ jobs:
             --output-dir hf-output \
             --overwrite \
             $( [ "${{ inputs.push_to_hub }}" = "true" ] && printf -- "--repo-id %s --hf-token %s" "$DATASET_REPO" "$HF_TOKEN" )
+
+      - name: Upload README/LICENSE via API (push_to_hub mode)
+        if: ${{ inputs.push_to_hub == 'true' }}
+        env:
+          DATASET_REPO: ${{ steps.dataset_info.outputs.repo_id }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN secret is required to upload metadata" >&2
+            exit 1
+          fi
+          python - <<'PY'
+import os
+from huggingface_hub import HfApi
+
+repo_id = os.environ["DATASET_REPO"]
+token = os.environ["HF_TOKEN"]
+api = HfApi()
+api.upload_file(
+    path_or_fileobj="README_hf.md",
+    path_in_repo="README.md",
+    repo_id=repo_id,
+    repo_type="dataset",
+    token=token,
+)
+api.upload_file(
+    path_or_fileobj="LICENSE",
+    path_in_repo="LICENSE",
+    repo_id=repo_id,
+    repo_type="dataset",
+    token=token,
+)
+PY
 
       - name: Push via Git (default path)
         if: ${{ inputs.push_to_hub != 'true' }}
